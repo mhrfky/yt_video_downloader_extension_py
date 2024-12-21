@@ -9,7 +9,6 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "debug": "vite --debug"
-
   },
   "dependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.21",

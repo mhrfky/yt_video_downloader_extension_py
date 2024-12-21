@@ -1,4 +1,3 @@
-import React from 'react';
 import { YouTubeClipper } from './components/youtubeClipper.tsx';
 
 function App() {

@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from yt_dlp.utils import download_range_func
 from pathlib import Path
+import ffmpeg
 from crossdomain_decorator  import crossdomain
 app = Flask(__name__)
 CORS(app, resources={
@@ -100,11 +101,11 @@ def get_video_info():
 
 
 @app.route('/download-clip', methods=['POST', 'OPTIONS'])
-@crossdomain(origin='*')
 def download_clip():
     if request.method == 'OPTIONS':
+        print('OPTIONS request')
         return '', 204
-
+    print("request : ", request.get_json())
     try:
         data = request.get_json()
         if not data:
@@ -124,9 +125,12 @@ def download_clip():
         ydl_opts = {
             'format': format_id,
             'outtmpl': output_template,
-            'progress_hooks': [download_manager.progress_hook],
             'download_ranges': download_range_func(None, [(start_time, end_time)]),
-            'force_keyframes_at_cuts': True
+            'ffmpeg_location': r'C:\ProgramData\chocolatey\bin\ffmpeg.exe',
+            'force_keyframes_at_cuts': False,  # Disable keyframe forcing which requires ffmpeg
+            'postprocessors': [],
+            'external_downloader': None,
+            # 'ignoreerrors' : True
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -189,6 +193,7 @@ def get_progress(download_id):
 @app.after_request
 def after_request(response):
     # Only add CORS headers if they haven't been added by flask-cors
+    print("after request has been called")
     if not response.headers.get('Access-Control-Allow-Origin'):
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')

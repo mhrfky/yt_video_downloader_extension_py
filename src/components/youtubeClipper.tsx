@@ -59,7 +59,7 @@ export const YouTubeClipper: React.FC = () => {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(clip),
-                credentials: 'include',
+                // credentials: 'include',
 
             });
 

@@ -1,25 +1,28 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import { crx } from '@crxjs/vite-plugin';
-import manifest from './public/manifest.json';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
 
 export default defineConfig({
-  plugins: [
-    react(),
-    crx({ manifest }),
-  ],
+  plugins: [react()],
+  build: {
+    rollupOptions: {
+      input: {
+        popup: resolve(__dirname, 'index.html'), // This will be our main entry point
+      },
+      output: {
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name].[ext]'
+      }
+    },
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
   server: {
     port: 5173,
     strictPort: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      }
+    hmr: {
+      port: 5173
     }
-  },
-  build: {
-    sourcemap: true  // Enable source maps for debugging
   }
-});
+})

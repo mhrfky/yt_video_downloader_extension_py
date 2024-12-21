@@ -43,6 +43,7 @@ export class ClipListUI {
     }
 
     private handleDownload(videoId: string, clip: Clip): void {
+        console.log("cliplist.ts handleDownload");
         this.nativeHost.sendMessage({
             action: 'download',
             videoId,
