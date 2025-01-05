@@ -1,4 +1,5 @@
 import { YouTubeClipper } from './components/youtubeClipper.tsx';
+import './App.css'
 
 function App() {
     return (

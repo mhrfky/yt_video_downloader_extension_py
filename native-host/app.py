@@ -118,7 +118,7 @@ def download_clip():
         start_time = data.get('startTime', 0)
         end_time = data.get('endTime')
         format_id = data.get('format_id', 'best')
-
+        print("clip range:",  start_time, end_time)
         download_id = str(uuid.uuid4())
         output_template = f'{DOWNLOAD_FOLDER}/{download_id}.%(ext)s'
 

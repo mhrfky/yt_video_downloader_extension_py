@@ -11,7 +11,7 @@ export interface ClipsStorage {
 }
 
 export interface NativeHostMessage {
-    action: 'download';
+    action: 'download'  | 'download-clip';
     videoId: string;
     startTime: number;
     endTime: number;

@@ -17,7 +17,11 @@
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
-
+body{
+  width  : 400px;
+  background: #000000;  /* fallback */
+  /*background: linear-gradient(to right, #0f2027, #203a43, #2c5364);*/
+}
 @keyframes logo-spin {
   from {
     transform: rotate(0deg);
@@ -39,4 +43,49 @@
 
 .read-the-docs {
   color: #888;
+}
+input {
+  width: 8rem;  /* equivalent to w-64 in Tailwind */
+  padding: 0.5rem 1rem;  /* equivalent to px-4 py-2 */
+  font-size: 1.125rem;  /* equivalent to text-lg */
+  font-family: monospace;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.25rem;
+}
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);  /* grid-cols-2 */
+  background-color: #000000;
+  border: 1px solid #e5e7eb;
+
+}
+
+.grid-title {
+  font-weight: bold;                      /* font-bold */
+  margin-bottom: 1rem;                    /* mb-4 */
+}
+
+.grid-item {
+  /*background-color: #dbeafe;              !* bg-blue-100 *!*/
+  flex: 1;           /* Will grow to fill available space */
+  background: #c31432;  /* fallback */
+  display: flex;
+  border: 1px solid #e5e7eb;
+  /* flex */
+  /*align-items: center;                    !* items-center *!*/
+  /*justify-content: center;                !* justify-center *!*/
+}
+.clip_card{
+  border: 1px solid #e5e7eb;
+  background: #000000;
+  border-radius: 1rem;                 /* rounded */
+
+}
+.slider {
+  background-color: #000000;
+  border-radius: 1rem;                 /* rounded */
+  grid-column: span 2;                    /* col-span-2 */
+  /*display: flex;                          !* flex *!*/
+  /*align-items: center;                    !* items-center *!*/
+  /*justify-content: center;                !* justify-center *!*/
 }

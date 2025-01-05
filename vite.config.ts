@@ -7,7 +7,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        popup: resolve(__dirname, 'index.html'), // This will be our main entry point
+        popup: resolve(__dirname, 'index.html'),
+        background: resolve(__dirname, 'src/services/background.ts'),
+        contentScript: resolve(__dirname, 'src/utils/youtubeContentScript.ts')
       },
       output: {
         entryFileNames: 'assets/[name].js',

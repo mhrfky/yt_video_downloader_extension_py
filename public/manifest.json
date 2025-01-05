@@ -6,7 +6,15 @@
   "permissions": [
     "storage",
     "tabs",
-    "nativeMessaging"
+    "nativeMessaging",
+    "activeTab",
+    "scripting"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["assets/contentScript.js"]
+    }
   ],
   "host_permissions": [
     "*://*.youtube.com/*"
@@ -15,7 +23,13 @@
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "action": {
-    "default_popup": "index.html"
-  }
+    "default_popup": "index.html",
 
+    "default_width": 800,
+    "default_height": 600
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type" : "module"
+  }
 }
