@@ -1,26 +1,38 @@
 import React, { useState, useEffect } from 'react';
+import { useClipManager } from '../hooks/useClipManager';
+import TimeRangeControl from "../ui/timeRangeControl";
 import { YouTubeUtils } from '../utils/youtubeUtils';
-import { ClipStorageService } from '../services/clipStorageService';
-import TimeRangeControl from "../ui/timeRangeControl.tsx";
-
-interface TimeRange {
-    start: number;
-    end: number;
-    downloaded?: boolean;
-}
 
 export const YouTubeClipper: React.FC = () => {
-    const [currentVideoClips, setCurrentVideoClips] = useState<TimeRange[]>([]);
     const [errorMessage, setErrorMessage] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
     const [currentTabId, setCurrentTabId] = useState<number | null>(null);
-    const [currentTabUrl, setCurrentTabUrl] = useState<string>(''); // New state
-    const [videoDuration, setVideoDuration] = useState<number>(100); // Default value until real duration is loaded
-    const [unsavedChanges, setUnsavedChanges] = useState<boolean>(false);
+    const [currentTabUrl, setCurrentTabUrl] = useState('');
+    const [videoDuration, setVideoDuration] = useState<number>(100);
 
+    const {
+        clips: currentVideoClips,
+        isLoading,
+        queueLength,
+        isDownloading,
+        handleNewClip,
+        handleDeleteClip,
+        handleDownloadClip,
+        handleTimeChange,
+        loadClipsForCurrentVideo
+    } = useClipManager({
+        currentTabUrl,
+        currentTabId,
+        setErrorMessage,
+    });
 
     const initializeTab = async () => {
         try {
+            // Check if Chrome APIs are available
+            if (typeof chrome === 'undefined' || !chrome.tabs) {
+                setErrorMessage('Chrome extension APIs not available');
+                return;
+            }
+
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
             if (!tab.id) {
@@ -38,222 +50,45 @@ export const YouTubeClipper: React.FC = () => {
 
             await chrome.runtime.sendMessage({ action: 'ENSURE_CONTENT_SCRIPT' });
             await loadClipsForCurrentVideo();
-
         } catch (error) {
             setErrorMessage('Failed to initialize');
             console.error('Tab initialization error:', error);
         }
     };
 
-    const setVideoTime = async (seconds: number): Promise<boolean> => {
-        if (!currentTabId) {
-            console.error('setVideoTime: No currentTabId available');
-            return false;
-        }
-
-        try {
-            const response = await chrome.tabs.sendMessage(currentTabId, {
-                action: 'SET_VIDEO_TIME',
-                time: seconds  // The content script is already set up to handle this format
-            }) as { success: boolean };
-
-            if (!response || response.success === undefined) {
-                console.error('setVideoTime: Invalid response');
-                return false;
-            }
-            console.log("changed to",seconds)
-            return response.success;
-        } catch (error) {
-            console.error('setVideoTime error:', error);
-            setErrorMessage('Failed to set video time. Is the video loaded?');
-            return false;
-        }
-    };
-    const getDuration = async (): Promise<number | null> => {
-        if (!currentTabId) {
-            console.error('getDuration: No currentTabId available');
-            return null;
-        }
-        try {
-            const response = await chrome.tabs.sendMessage(currentTabId, {
-                action: 'GET_VIDEO_TIME'
-            }) as { duration: number | null };
-
-            if (!response || response.duration === null || response.duration === undefined) {
-                console.error('getDuration: Invalid response');
-                return null;
-            }
-
-            return response.duration;
-        } catch (error) {
-            console.error('getDuration error:', error);
-            setErrorMessage('Failed to get video duration. Is the video loaded?');
-            return null;
-        }
-    };
-
-    const loadClipsForCurrentVideo = async () => {
-        try {
-            const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-            if (!videoId) return;
-
-            const allClips = await ClipStorageService.getAllClips();
-            setCurrentVideoClips(allClips[videoId]?.clips || []);
-        } catch (error) {
-            setErrorMessage('Failed to load clips');
-            console.error('Load clips error:', error);
-        }
-    };
-
-    const handleNewClip = async () => {
-        try {
-            if (!currentTabId) {
-                setErrorMessage('No active YouTube tab. Please refresh the extension');
-                return;
-            }
-
-            const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-            if (!videoId) {
-                setErrorMessage('Invalid YouTube URL. Please check the URL format');
-                return;
-            }
-
-            const duration = await getDuration();
-            if (duration === null) {
-                setErrorMessage('Cannot access video duration. Please reload the YouTube page');
-                return;
-            }
-
-            await ClipStorageService.saveClip(videoId, currentTabUrl, 0, duration);
-            await loadClipsForCurrentVideo();
-            setErrorMessage('');
-
-        } catch (error) {
-            console.error('New clip error:', error);
-            setErrorMessage('Failed to save clip. Please try refreshing the page');
-        }
-    };
-    const handleDownloadClip = async (index: number) => {
-        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-        if (!videoId) {
-            console.error('No video ID found');
-            return;
-        }
-
-        setIsLoading(true);
-        try {
-            const response = await fetch('http://localhost:5000/download-clip', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify({
-                    url: `https://www.youtube.com/watch?v=${videoId}`,
-                    startTime: currentVideoClips[index].start,
-                    endTime: currentVideoClips[index].end,
-                    format_id: 'best'
-                })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Response not OK:', response.status, errorText);
-                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            if (data.success) {
-                await loadClipsForCurrentVideo();
-                setErrorMessage('');
-            } else {
-                throw new Error(data.error || 'Unknown error occurred');
-            }
-        } catch (error) {
-            console.error('Full error details:', error);
-            setErrorMessage('Failed to download clip: ' + (error instanceof Error ? error.message : 'Unknown error'));
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleDeleteClip = async (index: number) => {
-        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-        if (!videoId) return;
-
-        try {
-            await ClipStorageService.deleteClip(videoId, index);
-            await loadClipsForCurrentVideo();
-        } catch (error) {
-            setErrorMessage('Failed to delete clip');
-            console.error('Delete clip error:', error);
-        }
-    };
-
-    const handleTimeChange = async (clipIndex: number, timeType: 'start' | 'end', newValue: number) => {
-        try {
-            const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-            if (!videoId)    return;
-
-            // Get the current clip and make a clean copy
-            const currentClip = {...currentVideoClips[clipIndex]};
-
-            // Validate based on current values
-            if (timeType === 'start') {
-                if (newValue >= currentClip.end) {
-                    setErrorMessage(`Invalid start time: ${newValue} must be less than end time: ${currentClip.end}`);
-                    return;
-                }
-            } else if (timeType === 'end') {
-                if (newValue <= currentClip.start) {
-                    setErrorMessage(`Invalid end time: ${newValue} must be greater than start time: ${currentClip.start}`);
-                    return;
-                }
-            }
-
-            // Create updated clip
-            const updatedClip = {
-                ...currentClip,
-                [timeType]: newValue
-            };
-            await setVideoTime(newValue);
-            setCurrentVideoClips(prevClips => {
-                const newClips = [...prevClips];
-                newClips[clipIndex] = updatedClip;
-                return newClips;
-            });
-            setUnsavedChanges(true);
-
-            setErrorMessage('');
-        } catch (error: unknown) {
-
-            if (error instanceof Error) {
-                console.error('Stack trace:', error.stack);
-                setErrorMessage(`Failed to update ${timeType} time: ${error.message}`);
-            } else {
-                setErrorMessage(`Failed to update ${timeType} time: Unknown error`);
-            }
-        }
-    };
-
-    const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-// First useEffect for initial setup
+    // Initialize on mount
     useEffect(() => {
         const initializeAll = async () => {
             await initializeTab();
-            const duration = await getDuration();
-            if (duration !== null) {
-                setVideoDuration(duration);
+            if (currentTabId && chrome?.tabs) {
+                try {
+                    const response = await chrome.tabs.sendMessage(currentTabId, {
+                        action: 'GET_VIDEO_TIME'
+                    }) as { duration: number };
+                    if (response?.duration) {
+                        setVideoDuration(response.duration);
+                    }
+                } catch (error) {
+                    console.error('Failed to get video duration:', error);
+                }
             }
         };
 
         initializeAll();
-    }, []); // Run only once on mount
+    }, []);
 
-// Second useEffect for handling URL changes
+    // Handle tab updates
     useEffect(() => {
-        const handleTabUpdate = async (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+        // Check if Chrome APIs are available
+        if (typeof chrome === 'undefined' || !chrome.tabs) {
+            return;
+        }
+
+        const handleTabUpdate = async (
+            tabId: number,
+            changeInfo: chrome.tabs.TabChangeInfo,
+            tab: chrome.tabs.Tab
+        ) => {
             if (changeInfo.url && tab.url?.includes('youtube.com/watch')) {
                 setCurrentTabUrl(tab.url);
                 setCurrentTabId(tabId);
@@ -275,60 +110,33 @@ export const YouTubeClipper: React.FC = () => {
             chrome.tabs.onUpdated.removeListener(handleTabUpdate);
             chrome.tabs.onActivated.removeListener(handleTabActivated);
         };
-    }, []); // Run only once for setting up listeners
+    }, []);
 
-// Third useEffect to handle URL changes
+    // Handle URL changes
     useEffect(() => {
         const updateForNewVideo = async () => {
             if (currentTabUrl && currentTabUrl.includes('youtube.com/watch')) {
                 await loadClipsForCurrentVideo();
-                const duration = await getDuration();
-                if (duration !== null) {
-                    setVideoDuration(duration);
+                if (currentTabId && chrome?.tabs) {
+                    try {
+                        const response = await chrome.tabs.sendMessage(currentTabId, {
+                            action: 'GET_VIDEO_TIME'
+                        }) as { duration: number };
+                        if (response?.duration) {
+                            setVideoDuration(response.duration);
+                        }
+                    } catch (error) {
+                        console.error('Failed to get video duration:', error);
+                    }
                 }
             }
         };
 
-        updateForNewVideo();  
-    }, [currentTabUrl]); // Run whenever URL changes
-    useEffect(() => {
-        const saveAllChanges = async () => {
-            const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-            if (!videoId || !unsavedChanges) return;
+        updateForNewVideo();
+    }, [currentTabUrl, currentTabId]);
 
-            try {
-                for (let i = 0; i < currentVideoClips.length; i++) {
-                    await ClipStorageService.updateClip(videoId, i, currentVideoClips[i]);
-                }
-                setUnsavedChanges(false);
-            } catch (error) {
-                console.error('Failed to save changes:', error);
-            }
-        };
+    const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
 
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'hidden') {
-                saveAllChanges();
-            }
-        };
-
-        const handleSuspend = () => {
-            saveAllChanges();
-        };
-
-        chrome.runtime.onSuspend.addListener(handleSuspend);
-        window.addEventListener('blur', saveAllChanges);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('beforeunload', saveAllChanges);
-
-        return () => {
-            chrome.runtime.onSuspend.removeListener(handleSuspend);
-            window.removeEventListener('blur', saveAllChanges);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('beforeunload', saveAllChanges);
-            saveAllChanges();
-        };
-    }, [unsavedChanges, currentVideoClips, currentTabUrl]);
     return (
         <div className="bg-white rounded-lg shadow-md p-6">
             <div className="space-y-4">
@@ -364,22 +172,34 @@ export const YouTubeClipper: React.FC = () => {
                                         onEndChange={(value) => handleTimeChange(index, 'end', value)}
                                     />
                                 </div>
-                                {!clip.downloaded && (
+
+                                <div className="flex gap-2">
+                                    {!clip.downloaded && (
+                                        <button
+                                            onClick={() => handleDownloadClip(index)}
+                                            className={`${
+                                                isDownloading(index)
+                                                    ? 'bg-yellow-500 hover:bg-yellow-600'
+                                                    : 'bg-green-500 hover:bg-green-600'
+                                            } text-white py-1 px-3 rounded`}
+                                            disabled={isDownloading(index)}
+                                        >
+                                            {isDownloading(index) ? 'Downloading...' : 'Download'}
+                                        </button>
+                                    )}
                                     <button
-                                        onClick={() => handleDownloadClip(index)}
-                                        className="bg-green-500 text-white py-1 px-3 rounded hover:bg-green-600"
+                                        onClick={() => handleDeleteClip(index)}
+                                        className="bg-red-500 text-white py-1 px-3 rounded hover:bg-red-600"
                                         disabled={isLoading}
                                     >
-                                        Download
+                                        Delete
                                     </button>
+                                </div>
+                                {queueLength > 0 &&  (
+                                    <div className="text-sm text-gray-600 mt-2">
+                                        Queue position: {queueLength}
+                                    </div>
                                 )}
-                                <button
-                                    onClick={() => handleDeleteClip(index)}
-                                    className="bg-red-500 text-white py-1 px-3 rounded hover:bg-red-600"
-                                    disabled={isLoading}
-                                >
-                                    Delete
-                                </button>
                             </div>
                         </div>
                     ))}

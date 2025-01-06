@@ -1,7 +1,7 @@
-// useClipManager.ts
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { ClipStorageService } from '../services/clipStorageService';
 import { YouTubeUtils } from '../utils/youtubeUtils';
+import { useDownloadQueue } from './useDownloadQueue';
 
 interface TimeRange {
     start: number;
@@ -11,64 +11,63 @@ interface TimeRange {
 
 interface UseClipManagerProps {
     currentTabUrl: string;
-    setVideoTime?: (time: number) => Promise<boolean>;
-    onError?: (message: string) => void;
-}
-
-interface UseClipManagerResult {
-    clips: TimeRange[];
-    isLoading: boolean;
-    unsavedChanges: boolean;
-    handleNewClip: () => Promise<void>;
-    handleDeleteClip: (index: number) => Promise<void>;
-    handleDownloadClip: (index: number) => Promise<void>;
-    handleTimeChange: (clipIndex: number, timeType: 'start' | 'end', newValue: number) => Promise<void>;
-    saveAllChanges: () => Promise<void>;
+    currentTabId: number | null;
+    setErrorMessage: (message: string) => void;
 }
 
 export const useClipManager = ({
                                    currentTabUrl,
-                                   setVideoTime,
-                                   onError
-                               }: UseClipManagerProps): UseClipManagerResult => {
-    const [clips, setClips] = useState<TimeRange[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
+                                   currentTabId,
+                                   setErrorMessage,
+                               }: UseClipManagerProps) => {
+    const [currentVideoClips, setCurrentVideoClips] = useState<TimeRange[]>([]);
     const [unsavedChanges, setUnsavedChanges] = useState(false);
 
-    const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
-
-    const loadClipsForCurrentVideo = useCallback(async () => {
-        if (!videoId) return;
-
-        try {
-            const allClips = await ClipStorageService.getAllClips();
-            setClips(allClips[videoId]?.clips || []);
-        } catch (error) {
-            console.error('Load clips error:', error);
-            onError?.('Failed to load clips');
-        }
-    }, [videoId, onError]);
-
-    // Load clips when URL changes
-    useEffect(() => {
-        loadClipsForCurrentVideo();
-    }, [loadClipsForCurrentVideo, currentTabUrl]);
-
-    const saveAllChanges = async () => {
-        if (!videoId || !unsavedChanges) return;
-
-        try {
-            for (let i = 0; i < clips.length; i++) {
-                await ClipStorageService.updateClip(videoId, i, clips[i]);
+    const handleClipDownloadComplete = (videoId: string, index: number) => {
+        setCurrentVideoClips(prevClips => {
+            const newClips = [...prevClips];
+            if (newClips[index]) {
+                newClips[index] = {
+                    ...newClips[index],
+                    downloaded: true
+                };
             }
-            setUnsavedChanges(false);
-        } catch (error) {
-            console.error('Failed to save changes:', error);
-            onError?.('Failed to save changes');
-        }
+            return newClips;
+        });
+
+        // Load clips in background
+        ClipStorageService.getAllClips()
+            .then(allClips => {
+                setCurrentVideoClips(allClips[videoId]?.clips || []);
+            })
+            .catch(error => {
+                console.error('Load clips error:', error);
+                setErrorMessage('Failed to refresh clips');
+            });
     };
 
-    // Auto-save setup
+    const { addToQueue, isProcessing, queueLength, isDownloading } = useDownloadQueue({
+        onDownloadComplete: handleClipDownloadComplete,
+        setErrorMessage
+    });
+
+    const saveAllChanges = () => {
+        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
+        if (!videoId || !unsavedChanges) return;
+
+        // Save in background
+        Promise.all(
+            currentVideoClips.map((clip, i) =>
+                ClipStorageService.updateClip(videoId, i, clip)
+            )
+        ).then(() => {
+            setUnsavedChanges(false);
+        }).catch(error => {
+            console.error('Failed to save changes:', error);
+            setErrorMessage('Failed to save changes');
+        });
+    };
+
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'hidden') {
@@ -80,159 +79,170 @@ export const useClipManager = ({
             saveAllChanges();
         };
 
-        // Set up auto-save listeners
-        chrome.runtime.onSuspend.addListener(handleSuspend);
-        window.addEventListener('blur', saveAllChanges);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('beforeunload', saveAllChanges);
-
-        return () => {
-            chrome.runtime.onSuspend.removeListener(handleSuspend);
-            window.removeEventListener('blur', saveAllChanges);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('beforeunload', saveAllChanges);
+        const handleBeforeUnload = () => {
             saveAllChanges();
         };
-    }, [unsavedChanges, clips, videoId]);
 
-    const handleNewClip = async () => {
-        if (!videoId) {
-            onError?.('No active YouTube video found');
-            return;
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+            chrome.runtime.onSuspend?.addListener(handleSuspend);
         }
 
-        try {
-            // Get current video time from content script
-            const response = await chrome.tabs.sendMessage(
-                await getCurrentTabId(),
-                { action: 'GET_VIDEO_TIME' }
-            ) as { currentTime: number; duration: number };
+        window.addEventListener('blur', saveAllChanges);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('beforeunload', handleBeforeUnload);
 
-            await ClipStorageService.saveClip(
-                videoId,
-                currentTabUrl,
-                response.currentTime,
-                response.duration
-            );
+        return () => {
+            if (typeof chrome !== 'undefined' && chrome.runtime) {
+                chrome.runtime.onSuspend?.removeListener(handleSuspend);
+            }
+            window.removeEventListener('blur', saveAllChanges);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            saveAllChanges();
+        };
+    }, [unsavedChanges, currentVideoClips, currentTabUrl]);
 
-            await loadClipsForCurrentVideo();
-        } catch (error) {
-            console.error('New clip error:', error);
-            onError?.('Failed to create new clip');
-        }
-    };
-
-    const handleDeleteClip = async (index: number) => {
+    const loadClipsForCurrentVideo = () => {
+        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
         if (!videoId) return;
 
-        try {
-            await ClipStorageService.deleteClip(videoId, index);
-            await loadClipsForCurrentVideo();
-        } catch (error) {
-            console.error('Delete clip error:', error);
-            onError?.('Failed to delete clip');
-        }
+        // Load in background
+        ClipStorageService.getAllClips()
+            .then(allClips => {
+                setCurrentVideoClips(allClips[videoId]?.clips || []);
+            })
+            .catch(error => {
+                setErrorMessage('Failed to load clips');
+                console.error('Load clips error:', error);
+            });
     };
 
-    const handleDownloadClip = async (index: number) => {
-        if (!videoId) {
-            onError?.('No video ID found');
+    const setVideoTime = (seconds: number): Promise<boolean> => {
+        if (!currentTabId) {
+            console.error('setVideoTime: No currentTabId available');
+            return Promise.resolve(false);
+        }
+
+        return chrome.tabs.sendMessage(currentTabId, {
+            action: 'SET_VIDEO_TIME',
+            time: seconds
+        }).then((response: { success: boolean }) => {
+            if (!response || response.success === undefined) {
+                console.error('setVideoTime: Invalid response');
+                return false;
+            }
+            return response.success;
+        }).catch(error => {
+            console.error('setVideoTime error:', error);
+            setErrorMessage('Failed to set video time. Is the video loaded?');
+            return false;
+        });
+    };
+
+    const handleNewClip = () => {
+        if (!currentTabId) {
+            setErrorMessage('No active YouTube tab. Please refresh the extension');
             return;
         }
 
-        setIsLoading(true);
-        try {
-            const response = await fetch('http://localhost:5000/download-clip', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify({
-                    url: `https://www.youtube.com/watch?v=${videoId}`,
-                    startTime: clips[index].start,
-                    endTime: clips[index].end,
-                    format_id: 'best'
-                })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
-            }
-
-            const data = await response.json();
-            if (data.success) {
-                await loadClipsForCurrentVideo();
-            } else {
-                throw new Error(data.error || 'Unknown error occurred');
-            }
-        } catch (error) {
-            console.error('Download error:', error);
-            onError?.(error instanceof Error ? error.message : 'Failed to download clip');
-        } finally {
-            setIsLoading(false);
+        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
+        if (!videoId) {
+            setErrorMessage('Invalid YouTube URL. Please check the URL format');
+            return;
         }
+
+        // Create clip in background
+        chrome.tabs.sendMessage(currentTabId, {
+            action: 'GET_VIDEO_TIME'
+        }).then((response: { currentTime: number; duration: number }) => {
+            return ClipStorageService.saveClip(videoId, currentTabUrl, response.currentTime, response.duration);
+        }).then(() => {
+            loadClipsForCurrentVideo();
+            setErrorMessage('');
+        }).catch(error => {
+            console.error('New clip error:', error);
+            setErrorMessage('Failed to save clip. Please try refreshing the page');
+        });
     };
 
-    const handleTimeChange = async (clipIndex: number, timeType: 'start' | 'end', newValue: number) => {
-        try {
-            if (!videoId) return;
+    const handleTimeChange = (clipIndex: number, timeType: 'start' | 'end', newValue: number) => {
+        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
+        if (!videoId) return;
 
-            const currentClip = {...clips[clipIndex]};
+        const currentClip = {...currentVideoClips[clipIndex]};
 
-            // Validate time ranges
-            if (timeType === 'start') {
-                if (newValue >= currentClip.end) {
-                    onError?.(`Start time (${newValue}) must be less than end time (${currentClip.end})`);
-                    return;
-                }
-            } else {
-                if (newValue <= currentClip.start) {
-                    onError?.(`End time (${newValue}) must be greater than start time (${currentClip.start})`);
-                    return;
-                }
+        if (timeType === 'start') {
+            if (newValue >= currentClip.end) {
+                setErrorMessage(`Invalid start time: ${newValue} must be less than end time: ${currentClip.end}`);
+                return;
             }
-
-            // Update video position if callback provided
-            if (setVideoTime) {
-                await setVideoTime(newValue);
+        } else if (timeType === 'end') {
+            if (newValue <= currentClip.start) {
+                setErrorMessage(`Invalid end time: ${newValue} must be greater than start time: ${currentClip.start}`);
+                return;
             }
+        }
 
-            // Update clip in state
-            const updatedClip = {
-                ...currentClip,
-                [timeType]: newValue
-            };
-
-            setClips(prevClips => {
+        // Update time in background
+        setVideoTime(newValue).then(() => {
+            setCurrentVideoClips(prevClips => {
                 const newClips = [...prevClips];
-                newClips[clipIndex] = updatedClip;
+                newClips[clipIndex] = {
+                    ...currentClip,
+                    [timeType]: newValue
+                };
                 return newClips;
             });
-
             setUnsavedChanges(true);
-        } catch (error) {
-            console.error('Time change error:', error);
-            onError?.(error instanceof Error ? error.message : 'Failed to update time');
-        }
+            setErrorMessage('');
+        }).catch(error => {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            setErrorMessage(`Failed to update ${timeType} time: ${message}`);
+        });
     };
 
-    // Helper function to get current tab ID
-    const getCurrentTabId = async (): Promise<number> => {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab.id) throw new Error('No active tab found');
-        return tab.id;
+    const handleDeleteClip = (index: number) => {
+        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
+        if (!videoId) return;
+
+        // Delete in background
+        ClipStorageService.deleteClip(videoId, index)
+            .then(() => {
+                loadClipsForCurrentVideo();
+            })
+            .catch(error => {
+                setErrorMessage('Failed to delete clip');
+                console.error('Delete clip error:', error);
+            });
+    };
+
+    const handleDownloadClip = (index: number) => {
+        const videoId = YouTubeUtils.getVideoIdFromUrl(currentTabUrl);
+        if (!videoId) {
+            console.error('No video ID found');
+            return;
+        }
+
+        addToQueue({
+            videoId,
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            startTime: currentVideoClips[index].start,
+            endTime: currentVideoClips[index].end,
+            format_id: 'best',
+            index
+        });
     };
 
     return {
-        clips,
-        isLoading,
+        clips: currentVideoClips,
+        isLoading: isProcessing,
+        queueLength,
+        isDownloading,
         unsavedChanges,
+        loadClipsForCurrentVideo,
         handleNewClip,
         handleDeleteClip,
         handleDownloadClip,
         handleTimeChange,
-        saveAllChanges
     };
 };

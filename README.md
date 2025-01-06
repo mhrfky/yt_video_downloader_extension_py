@@ -1,50 +1,38 @@
-# React + TypeScript + Vite
+# Youtube Clip Downloader Extension:
+This is an proof-of-concept clip downloader for  youtube videos. User can download  specific parts of video  using this
+tool. User can store ranges of the video  to download later  as well. The clip selection is managed by 2 mechanism, first
+is slider, and the second is the input box. 
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+* In input box, user either can enter manually or iterate  over the  video on  the basis  of  the  digit  currently  
+selected  using  up  and down  keys.
 
-Currently, two official plugins are available:
+* The  slider  is  quite self-explanatory.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+* The video  frame  is  also  showed for  user to see  which frame  it will  start cutting the video.
 
-## Expanding the ESLint configuration
+![img.png](img.png)
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+The tool is not fully pipelined yet. Has shortcomings and spagetti code here and there and needs some cleanup. Future 
+updates are going to be sure of that. 
 
-- Configure the top-level `parserOptions` property like this:
+## How to  Run:
+* Download and install ffmpeg on your system.
+* Download this package
+* Go  to  your extensions page of  your browser
+* Select the directory of  this package with "Load Unpackaged"
+* npm install
+* Run  native-host/app.py
+* Done.
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
-
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
-
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
+## Future Directions:
+### React - Typescript -  Vite Frontend:
+* Clean-up
+* Optimize hooks
+* Make the ui pretty
+* Add Download progress
+* Add Downloaded Section
+### Python backend:
+* Add Parallel Download
+* Clean-up
+* Send  Progress
+* Build Server  with the frontend

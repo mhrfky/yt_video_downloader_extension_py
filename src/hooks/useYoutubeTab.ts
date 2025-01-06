@@ -36,7 +36,8 @@ export const useYouTubeTab = (): UseYouTubeTabResult => {
             setCurrentTabUrl(tab.url);
 
             // Ensure content script is loaded
-            await chrome.runtime.sendMessage({ action: 'ENSURE_CONTENT_SCRIPT' });
+            const temp = await chrome.runtime.sendMessage({ action: 'ENSURE_CONTENT_SCRIPT' });
+            setErrorMessage(temp);
 
             // Use tab.id directly instead of currentTabId from state
             const duration = await YouTubeUtils.getDuration(tab.id);
